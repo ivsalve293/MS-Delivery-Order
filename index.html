@@ -259,7 +259,7 @@
     }
     input[readonly]{background:#fff1f2;color:#6b7280;border-color:rgba(220,38,38,.10)}
 
-    /* ✅ Real-time Valid/Invalid Effects (same as your screenshot style) */
+    /* Real-time Valid/Invalid Effects */
     input.touched.is-valid, textarea.touched.is-valid, select.touched.is-valid {
       border-color: var(--ok);
       box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.2);
@@ -471,43 +471,47 @@
     .icon-btn:hover{background:#fef2f2;border-color:#fca5a5;transform:translateY(-1px)}
     .icon-btn:active{transform:translateY(0) scale(.98)}
 
-    /* Print */
+    /* === PRINT CSS === */
     .print-only{display:none;}
     #printTableLayout{display:none;}
+
     @media print{
       @page { size: A4 portrait; margin: 5mm; }
-      body { background:#fff; margin:0; padding:0; font-size: 11px; }
+      body { background:#fff !important; margin:0; padding:0; font-size: 11px; }
       .topbar, .actions, .summary, .toast, .no-print, .add-item-bar { display:none !important; }
       .wrap { max-width:none; margin:0; padding:0; }
       .layout { grid-template-columns:1fr; gap:0; }
       main { display:none !important; }
       .print-only { display:block !important; }
       #printTableLayout { display:block; }
+      
+      /* Force wrap for breakdown */
+      .do-wrap { white-space: normal !important; word-wrap: break-word !important; }
     }
-      .do-page{width:100%;--print-scale:1;transform:scale(var(--print-scale));transform-origin:top left;}
-.do-title{text-align:center;font-weight:700;font-size:20px;margin:2mm 0 3mm;}
-.do-table{width:100%;border-collapse:collapse;table-layout:fixed;}
-.do-table td,.do-table th{border:1px solid #000;padding:4px 5px;vertical-align:top;font-size:11px;}
-.do-label{width:22%;font-weight:700;white-space:nowrap;}
-.do-value{width:78%;word-wrap:break-word;overflow-wrap:break-word;}
-.do-subhead{font-weight:700;text-align:center;}
-.do-gray{background:#d9d9d9;font-weight:700;}
-.do-tight td,.do-tight th{padding:3px 5px;}
-.do-right-table{width:100%;border-collapse:collapse;table-layout:fixed;}
-.do-right-table td{border:1px solid #000;padding:4px 5px;font-size:11px;}
-.do-right-label{width:45%;font-weight:700;white-space:nowrap;}
-.do-right-val{width:55%;}
-.do-section-gap{height:3mm;}
-.do-note td{height:14mm;}
-.do-sign td{height:16mm;vertical-align:bottom;}
-.do-num{text-align:right;white-space:nowrap;}
-.do-center{text-align:center;}
 
-@media print{
-  @page{size:A4 portrait;margin:5mm;}
-  body{background:#fff!important;}
-  .do-page *{color:#000!important;}
-}
+    .do-page{width:100%;--print-scale:1;transform:scale(var(--print-scale));transform-origin:top left;}
+    .do-title{text-align:center;font-weight:700;font-size:20px;margin:2mm 0 3mm;}
+    .do-table{width:100%;border-collapse:collapse;table-layout:fixed;}
+    .do-table td,.do-table th{border:1px solid #000;padding:4px 5px;vertical-align:top;font-size:11px;}
+    
+    /* Dynamic sauda table */
+    .sauda-table { table-layout: fixed; width: 100%; }
+    .sauda-table td { overflow: hidden; }
+
+    .do-label{width:22%;font-weight:700;white-space:nowrap;}
+    .do-value{width:78%;word-wrap:break-word;overflow-wrap:break-word;}
+    .do-subhead{font-weight:700;text-align:center;background:#eee;}
+    .do-gray{background:#d9d9d9;font-weight:700;}
+    .do-tight td,.do-tight th{padding:3px 5px;}
+    .do-right-table{width:100%;border-collapse:collapse;table-layout:fixed;}
+    .do-right-table td{border:1px solid #000;padding:4px 5px;font-size:11px;}
+    .do-right-label{width:45%;font-weight:700;white-space:nowrap;}
+    .do-right-val{width:55%;}
+    .do-section-gap{height:3mm;}
+    .do-note td{height:14mm;}
+    .do-sign td{height:16mm;vertical-align:bottom;}
+    .do-num{text-align:right;white-space:nowrap;}
+    .do-center{text-align:center;}
  
   </style>
 </head>
@@ -722,7 +726,7 @@
     /* ===========================
        DATA
     ============================ */
-    const ITEM_LIST = ["MS Pipe", "MS Angle", "MS Channel", "Binding Wire", "Nails", "Sqr Bar", "Round Bar", "Flats", "HR Pipe", "MS Structure ISMC", "Heavy Structure ISMB"];
+        const ITEM_LIST = ["MS Pipe", "MS Angle", "MS Channel", "Binding Wire", "Nails", "Sqr Bar", "Round Bar", "Flats", "HR Pipe", "MS Structure ISMC", "Heavy Structure ISMB"];
 
 const SIZE_SD_LIST = {
   "MS Pipe": [
@@ -2683,6 +2687,156 @@ orderDate.value = TODAY;
       if(!Number.isFinite(n)) return "";
       return (Math.round(n * 1000) / 1000).toFixed(3);
     }
+    
+    function toDDMMYYYY(iso){
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m) return String(iso || "");
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function replaceNewlines(s){
+  return String(s ?? "").replace(/\r?\n/g, " | ").trim();
+}
+
+function csvEscape(v){
+  // Return raw cell content (without surrounding quotes decision)
+  return String(v ?? "");
+}
+
+function csvCell(v){
+  // Empty cell
+  if (v === null || v === undefined || v === "") return "";
+  // Always quote non-empty cells, and escape quotes
+  const s = csvEscape(v).replace(/"/g, '""');
+  return `"${s}"`;
+}
+
+function fmtQty3(q){
+  const n = parseFloat(q);
+  return Number.isFinite(n) ? n.toFixed(3) : "";
+}
+
+function fmtInt(n){
+  const x = parseFloat(n);
+  return Number.isFinite(x) ? String(Math.round(x)) : "";
+}
+
+function buildDeliveryOrderCSV(data){
+  const lines = [];
+
+  // A) Title
+  lines.push(csvCell("Delivery Order"));
+  lines.push(""); // blank row
+
+  // B) Header key/value rows (Field, Value)
+  const headerPairs = [
+    ["Dealer Name", data.dealerName || ""],
+    ["Billing Name", data.billingName || ""],
+    ["Billing Address", replaceNewlines(data.billingAddress || "")],
+    ["Dispatch Address", replaceNewlines(data.dispatchAddress || "")],
+    ["Bill Type", data.billType || ""],
+    ["Date", toDDMMYYYY(data.orderDate || "")],
+    ["Freight", data.freight ?? ""],
+    ["Lorry No", data.lorryNo || ""],
+    ["OB", data.ob ?? ""],
+  ];
+
+  headerPairs.forEach(([k, v]) => {
+    lines.push([csvCell(k), csvCell(v)].join(","));
+  });
+
+  lines.push(""); // C) Blank row
+
+  // D) Item & Sauda Rates section
+  lines.push(csvCell("Item & Sauda Rates"));
+  lines.push([csvCell("Item"), csvCell("Rate")].join(","));
+
+  const saudaPairs = (data.items || [])
+    .map(b => ({
+      item: String(b.item || "").trim(),
+      rate: parseFloat(b.saudaRate)
+    }))
+    .filter(x => x.item && Number.isFinite(x.rate) && x.rate > 0);
+
+  if (saudaPairs.length === 0){
+    // keep table shape
+    lines.push([csvCell(""), csvCell("")].join(","));
+  } else {
+    saudaPairs.forEach(x => {
+      lines.push([csvCell(x.item), csvCell(String(Math.round(x.rate)))].join(","));
+    });
+  }
+
+  lines.push(""); // E) Blank row
+
+  // F) Main items table
+  lines.push(csvCell("Items"));
+  lines.push([
+    csvCell("Sr"),
+    csvCell("Item"),
+    csvCell("Sizes"),
+    csvCell("Qty (MT)"),
+    csvCell("Net Rate"),
+    csvCell("Breakdown"),
+  ].join(","));
+
+  let sr = 1;
+  let totalQty = 0;
+
+  (data.items || []).forEach(block => {
+    const itemName = String(block.item || "").trim();
+    (block.sizes || []).forEach(s => {
+      const size = String(s.size || "").trim();
+      const qty = parseFloat(s.qty);
+
+      // Rule: skip invalid
+      if (!itemName || !size || !Number.isFinite(qty) || qty <= 0) return;
+
+      totalQty += qty;
+
+      lines.push([
+        csvCell(String(sr++)),
+        csvCell(itemName),
+        csvCell(size),
+        csvCell(qty.toFixed(3)),
+        csvCell(fmtInt(s.rate)),
+        csvCell(replaceNewlines(String(s.bd || "").trim())),
+      ].join(","));
+    });
+  });
+
+  if (sr === 1){
+    // No rows -> add an empty placeholder row to keep structure
+    lines.push([csvCell("1"), csvCell(""), csvCell(""), csvCell(""), csvCell(""), csvCell("")].join(","));
+  }
+
+  // G) Total row aligned to columns:
+  // "","Total","","<TOTAL_QTY>","MT",""
+  lines.push([
+    "",                 // Sr
+    csvCell("Total"),   // Item
+    "",                 // Sizes
+    csvCell(totalQty > 0 ? totalQty.toFixed(3) : "—"), // Qty (MT)
+    csvCell("MT"),      // Net Rate column
+    ""                  // Breakdown
+  ].join(","));
+
+  lines.push(""); // H) Blank row
+
+  // I) Note (only if present)
+  const note = String(data.note || "").trim();
+  if (note){
+    lines.push([csvCell("Note"), csvCell(replaceNewlines(note))].join(","));
+    lines.push(""); // optional spacing
+  }
+
+  // J) Signatures (2 cols)
+  lines.push([csvCell("Order Signed"), csvCell(data.signedBy || "")].join(","));
+  lines.push([csvCell("Approved By"), csvCell(data.approvedBy || "")].join(","));
+
+  return lines.join("\n");
+}
+
 
     /* ===========================
        SIZE INPUT (datalist)
@@ -2736,9 +2890,12 @@ orderDate.value = TODAY;
       const sd = (sdMap && Number.isFinite(+sdMap[size])) ? +sdMap[size] : 0;
 
       const isNC = (billType === "NC");
+      // Calc logic
       const base = sauda + sd + 160 - (isNC ? 3000 : 0) + freight;
       const finalRate = Math.round(base * 1.18);
-      const bd = `${sauda} + ${sd} + 160${isNC ? " - 3000" : ""} + ${freight} + 18%`;
+      
+      // ✅ Breakdown Text: Sauda + SD - 3000(if NC) + 160 + Freight + 18%
+      const bd = `${sauda} + ${sd}${isNC ? " - 3000" : ""} + 160 + ${freight} + 18%`;
 
       return { rate: finalRate, bd };
     }
@@ -2751,9 +2908,6 @@ orderDate.value = TODAY;
 
     /* ===========================
        ✅ Balance Qty Enforcement
-       - Balance Qty is per block
-       - Sum(qty) in block must be <= balance
-       - If exceeded, auto-clamp the last edited qty
     ============================ */
     function blockUsedQty(block){
       let total = 0;
@@ -2809,10 +2963,10 @@ orderDate.value = TODAY;
     }
 
    function updateBlockSummary(block) {
-  // Keep logic calculated (used/balance is still enforced elsewhere),
-  // but do NOT show any summary text in the header UI.
-  block.querySelector('.block-summary').textContent = "";
-}
+      // Keep logic calculated (used/balance is still enforced elsewhere),
+      // but do NOT show any summary text in the header UI.
+      block.querySelector('.block-summary').textContent = "";
+    }
 
     function recalcAll() {
       let grandTotal = 0;
@@ -3215,21 +3369,25 @@ orderDate.value = TODAY;
       }
 
       if(action === "exportCsv"){
-        const data = collectData();
-        let csv = "Item,Size,Qty,Rate\n";
-        data.items.forEach(block => {
-          (block.sizes || []).forEach(s => {
-            csv += `"${block.item}","${s.size}",${s.qty},${s.rate}\n`;
-          });
-        });
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = "data.csv";
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      const data = collectData();
+      const csv = buildDeliveryOrderCSV(data);
+
+      const safeDate = (data.orderDate || "DO").replaceAll("-", "");
+      const safeLorry = (data.lorryNo || "Lorry").replace(/[^\w-]+/g, "_");
+      const filename = `DeliveryOrder_${safeDate}_${safeLorry}.csv`;
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = window.URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+
+  URL.revokeObjectURL(url);
+  showToast("CSV exported");
+}
+
 
       if(action === "print"){
         // basic validation
@@ -3303,70 +3461,116 @@ function isoToDDMMYYYY(iso){
   if(!m) return escHtml(iso || "");
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
-function buildItemSaudaRows(data){
-  // Only show rows where BOTH item and saudaRate are present
-  const pairs = (data.items || [])
-    .map(b => ({ item: (b.item||"").trim(), rate: (b.saudaRate||"").toString().trim() }))
-    .filter(x => x.item && x.rate && Number.isFinite(+x.rate) && (+x.rate > 0));
 
-  // ✅ empty state
-  if(!pairs.length){
-    return `<tr><td class="do-center" colspan="6" style="height:9mm;">&nbsp;</td></tr>`;
-  }
+// ✅ NEW: Dynamic Sauda Table Builder
+function buildSaudaTableHTML(data) {
+    const pairs = (data.items || [])
+      .map(b => ({ item: (b.item||"").trim(), rate: (b.saudaRate||"").toString().trim() }))
+      .filter(x => x.item && x.rate && Number.isFinite(+x.rate) && (+x.rate > 0));
 
-  // ✅ 3 pairs per row => Item|Rate x3
-  let html = "";
-  for(let i=0;i<pairs.length;i+=3){
-    const a = pairs[i];
-    const b = pairs[i+1];
-    const c = pairs[i+2];
+    const count = pairs.length;
+    
+    // Determine number of pairs per row (1, 2, or 3)
+    let pairsPerRow = 1; 
+    if (count === 2) pairsPerRow = 2;
+    if (count >= 3) pairsPerRow = 3;
 
-    html += `
-      <tr>
-        <td>${escHtml(a.item)}</td>
-        <td class="do-num">${escHtml(a.rate)}</td>
+    const totalCols = pairsPerRow * 2;
 
-        <td>${b ? escHtml(b.item) : "&nbsp;"}</td>
-        <td class="do-num">${b ? escHtml(b.rate) : "&nbsp;"}</td>
+    // 1. Build Colgroup based on pairsPerRow
+    let colgroup = '<colgroup>';
+    // Logic: 1 pair = 70/30, 2 pairs = 35/15, 3 pairs = 20/13.3
+    const wItem = pairsPerRow === 1 ? '70%' : (pairsPerRow === 2 ? '35%' : '20%');
+    const wRate = pairsPerRow === 1 ? '30%' : (pairsPerRow === 2 ? '15%' : '13%');
 
-        <td>${c ? escHtml(c.item) : "&nbsp;"}</td>
-        <td class="do-num">${c ? escHtml(c.rate) : "&nbsp;"}</td>
-      </tr>
+    for(let i=0; i<pairsPerRow; i++) {
+         colgroup += `<col style="width:${wItem}"><col style="width:${wRate}">`;
+    }
+    colgroup += '</colgroup>';
+
+    // 2. Build Subhead row
+    let subhead = '<tr class="do-gray">';
+    for(let i=0; i<pairsPerRow; i++) {
+        subhead += `<td>Item</td><td class="do-center">Rate</td>`;
+    }
+    subhead += '</tr>';
+
+    // 3. Build Data Rows
+    let rowsHtml = '';
+    
+    if (count === 0) {
+         // Show empty placeholder row
+         rowsHtml = `<tr><td colspan="${totalCols}" class="do-center">&nbsp;</td></tr>`;
+    } else {
+        // Loop through items in chunks of `pairsPerRow`
+        for (let i = 0; i < count; i += pairsPerRow) {
+            rowsHtml += '<tr>';
+            for (let j = 0; j < pairsPerRow; j++) {
+                const pair = pairs[i + j];
+                if (pair) {
+                    rowsHtml += `<td>${escHtml(pair.item)}</td><td class="do-num">${escHtml(pair.rate)}</td>`;
+                } else {
+                    // Fill empty cells if valid items ran out in this row
+                    rowsHtml += `<td>&nbsp;</td><td>&nbsp;</td>`;
+                }
+            }
+            rowsHtml += '</tr>';
+        }
+    }
+
+    return `
+    <table class="do-table do-tight sauda-table">
+        ${colgroup}
+        <tr><td class="do-subhead" colspan="${totalCols}">Item &amp; Sauda Rates</td></tr>
+        ${subhead}
+        ${rowsHtml}
+    </table>
     `;
-  }
-
-  return html;
 }
 
 function buildMainRows(data){
-  let sr=1,total=0,rows="";
+  let sr=1, total=0, rows="";
+  
   (data.items||[]).forEach(block=>{
     const itemName=(block.item||"").trim();
     (block.sizes||[]).forEach(s=>{
       const size=(s.size||"").trim();
       const qty=parseFloat(s.qty);
       if(!itemName || !size || !Number.isFinite(qty) || qty<=0) return;
+      
       total+=qty;
+      
+      // ✅ Added .do-wrap to Breakdown column
       rows+=`<tr>
         <td class="do-center">${sr++}</td>
         <td>${escHtml(itemName)}</td>
         <td>${escHtml(size)}</td>
         <td class="do-num">${qty.toFixed(3)}</td>
         <td class="do-num">${escHtml(String(Math.round(parseFloat(s.rate)||0)))}</td>
-        <td>${escHtml((s.bd||"").trim())}</td>
+        <td class="do-wrap" style="font-size:10px;">${escHtml((s.bd||"").trim())}</td>
       </tr>`;
     });
   });
+
   if(!rows){
     rows=`<tr><td class="do-center">1</td><td>&nbsp;</td><td>&nbsp;</td><td class="do-num">&nbsp;</td><td class="do-num">&nbsp;</td><td>&nbsp;</td></tr>`;
   }
-  const totalRow=`<tr>
-    <td colspan="3" class="do-center" style="font-weight:700;">Total</td>
-    <td class="do-num" style="font-weight:700;">${total>0?total.toFixed(3):"—"}</td>
-    <td colspan="2" style="font-weight:700;">${total>0?"MT":""}</td>
+
+  // ✅ FIXED: Total Row Structure
+  // Col 1-3 merged: "Total"
+  // Col 4: Qty
+  // Col 5: "MT" (Separate cell)
+  // Col 6: Empty (Under Breakdown)
+  const totalRow=`<tr style="font-weight:700; background:#f9f9f9;">
+    <td colspan="3" class="do-center">Total</td>
+    <td class="do-num">${total>0?total.toFixed(3):"—"}</td>
+    <td class="do-center">MT</td>
+    <td>&nbsp;</td>
   </tr>`;
-  return {rows,totalRow};
+
+  return {rows, totalRow};
 }
+
 function buildPrintLayout(data){
   const billType=escHtml(data.billType||"");
   const dateTxt=isoToDDMMYYYY(data.orderDate||"");
@@ -3383,8 +3587,9 @@ function buildPrintLayout(data){
   const signedBy=escHtml(data.signedBy||"");
   const approvedBy=escHtml(data.approvedBy||"");
 
-  const itemSaudaRows=buildItemSaudaRows(data);
-  const {rows:mainRows,totalRow}=buildMainRows(data);
+  // Use new dynamic builder
+  const saudaTableHTML = buildSaudaTableHTML(data);
+  const {rows:mainRows, totalRow}=buildMainRows(data);
 
   const noteSection = note ? `
     <table class="do-table do-note" style="margin-top:3mm;">
@@ -3417,11 +3622,8 @@ function buildPrintLayout(data){
 
     <tr>
       <td style="padding:0;">
-        <table class="do-table do-tight">
-          <tr><td class="do-subhead" colspan="4">Item &amp; Sauda Rates</td></tr>
-          <tr class="do-gray"><td>Item</td><td class="do-center">Rate</td><td>Item</td><td class="do-center">Rate</td><td>Item</td><td class="do-center">Rate</td></tr>
-          ${itemSaudaRows}
-        </table>
+        <!-- DYNAMIC SAUDA TABLE -->
+        ${saudaTableHTML}
       </td>
       <td style="padding:0;">
         <table class="do-right-table do-tight"><tr><td>&nbsp;</td></tr></table>
@@ -3431,12 +3633,16 @@ function buildPrintLayout(data){
 
   <div class="do-section-gap"></div>
 
+  <!-- MAIN ITEMS TABLE -->
   <table class="do-table do-tight">
-  <colgroup>
-    <col style="width:23%"><col style="width:10%">
-    <col style="width:23%"><col style="width:10%">
-    <col style="width:23%"><col style="width:11%">
-  </colgroup>
+    <colgroup>
+      <col style="width:5%"><!-- Sr -->
+      <col style="width:22%"><!-- Item -->
+      <col style="width:22%"><!-- Size -->
+      <col style="width:12%"><!-- Qty -->
+      <col style="width:12%"><!-- Rate -->
+      <col style="width:27%"><!-- Breakdown -->
+    </colgroup>
 
     <tr class="do-gray">
       <td class="do-center">Sr</td><td>Item</td><td>Sizes</td>
@@ -3456,6 +3662,7 @@ function buildPrintLayout(data){
     </tr>
   </table>`;
 }
+
 function applyPrintScale(){
   const page=document.getElementById("printTableLayout");
   if(!page) return;
