@@ -291,26 +291,41 @@
     function showToast(msg){ toastText.textContent = msg; toast.classList.add("show"); setTimeout(()=>toast.classList.remove("show"), 2200); }
     function getGlobalBillType(){ const checked = document.querySelector('input[name="globalBillType"]:checked'); return checked ? checked.value : ""; }
     function getFreight(){ const v = parseFloat(document.getElementById("freight").value); return Number.isFinite(v) ? v : 0; }
+    function getOB(){ const v = parseFloat(document.getElementById("globalOB").value); return Number.isFinite(v) ? v : 0; } // New Helper
     function clampTo3(n){ if(!Number.isFinite(n)) return ""; return (Math.round(n * 1000) / 1000).toFixed(3); }
     function escHtml(s){ return String(s ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#39;"); }
     function isoToDDMMYYYY(iso){ const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return escHtml(iso || ""); return `${m[3]}/${m[2]}/${m[1]}`; }
 
-    function calcForward(saudaRate, sd, billType, freight) {
+    // UPDATED: Now accepts OB and item
+    function calcForward(saudaRate, sd, billType, freight, ob, item) {
       if (!Number.isFinite(saudaRate) || saudaRate <= 0) return { rate: "", bd: "Set Sauda Rate" };
       if (!billType) return { rate: "", bd: "Select Bill Type" };
+      
       const isNC = (billType === "NC");
-      const base = saudaRate + sd + 255 - (isNC ? 3000 : 0) + freight;
+      // STRICT EXEMPTION: If item is Binding Wire OR Nails, do NOT deduct 3000 even if bill type is NC.
+      const applyDeduction = isNC && (item !== "Binding Wire" && item !== "Nails");
+
+      // Added OB to calculation
+      const base = saudaRate + sd + 255 - (applyDeduction ? 3000 : 0) + freight + ob;
       const finalRate = Math.round(base * 1.18);
-      const bd = `${saudaRate} + ${sd}${isNC ? " - 3000" : ""} + 255 + ${freight} + 18%`;
+      
+      const deductionStr = applyDeduction ? " - 3000" : "";
+      const obStr = ob ? ` + ${ob}(OB)` : "";
+      const bd = `${saudaRate} + ${sd}${deductionStr} + 255 + ${freight}${obStr} + 18%`;
       return { rate: finalRate, bd };
     }
 
-    function calcReverse(netRate, sd, billType, freight) {
+    // UPDATED: Now accepts OB and item
+    function calcReverse(netRate, sd, billType, freight, ob, item) {
       if (!Number.isFinite(netRate) || netRate <= 0) return 0;
       if (!billType) return 0;
+      
       const isNC = (billType === "NC");
+      const applyDeduction = isNC && (item !== "Binding Wire" && item !== "Nails");
+
       const base = netRate / 1.18;
-      const sauda = base - sd - 255 + (isNC ? 3000 : 0) - freight;
+      // Subtract OB in reverse
+      const sauda = base - sd - 255 + (applyDeduction ? 3000 : 0) - freight - ob;
       return Math.round(sauda);
     }
 
@@ -326,11 +341,12 @@
       const sd = (sdMap && Number.isFinite(+sdMap[size])) ? +sdMap[size] : 0;
       const billType = getGlobalBillType();
       const freight = getFreight();
+      const ob = getOB();
 
-      const { rate, bd } = calcForward(sauda, sd, billType, freight);
+      // Pass item and OB to calculation
+      const { rate, bd } = calcForward(sauda, sd, billType, freight, ob, item);
       const netInput = tr.querySelector('.net-rate-input');
       
-      // Update Net Rate ONLY if not currently focused to avoid typing glitch
       if (document.activeElement !== netInput) {
         netInput.value = rate;
       }
@@ -426,16 +442,12 @@
       if (data.sizes && data.sizes.length > 0) data.sizes.forEach(s => addSizeRow(block, s));
       else addSizeRow(block);
       
-      // OPTIMIZATION: Removed individual event listeners here. Using Delegation.
-      
       root.appendChild(block);
       updateBlockSummary(block);
       recalcAll();
       return block;
     }
 
-    /* --- OPTIMIZED EVENT DELEGATION --- */
-    // Instead of attaching listeners to every new block, we attach once to the container.
     root.addEventListener('click', (e) => {
         const target = e.target;
         const block = target.closest('.item-block');
@@ -463,7 +475,6 @@
         }
     });
 
-    // Capture focus to store previous value for selects
     root.addEventListener('focusin', (e) => {
         if(e.target.matches('.block-item-select')) {
             e.target.dataset.prev = e.target.value;
@@ -483,7 +494,6 @@
                 block.querySelector('.size-rows-container').innerHTML = ""; 
                 addSizeRow(block); 
             }
-            // Regenerate size inputs based on new item type
             block.querySelectorAll('.size-row').forEach(tr => { 
                 const cell = tr.querySelector('.size-cell'); 
                 const currentSize = tr.querySelector('.size-input')?.value || ""; 
@@ -517,15 +527,19 @@
               const sd = (sdMap && Number.isFinite(+sdMap[size])) ? +sdMap[size] : 0;
               const billType = getGlobalBillType();
               const freight = getFreight();
-              const newSauda = calcReverse(netRate, sd, billType, freight);
+              const ob = getOB();
+
+              const newSauda = calcReverse(netRate, sd, billType, freight, ob, item);
               block.querySelector('.block-sauda-input').value = newSauda;
               
-              // Recalc other rows in block
               block.querySelectorAll('.size-row').forEach(otherRow => {
                  if(otherRow !== tr) recalcRow(otherRow);
                  else {
                     const isNC = (billType === "NC");
-                    tr.querySelector('.bd-input').value = `${newSauda} + ${sd}${isNC ? " - 3000" : ""} + 255 + ${freight} + 18%`;
+                    const applyDeduction = isNC && (item !== "Binding Wire" && item !== "Nails");
+                    const deductionStr = applyDeduction ? " - 3000" : "";
+                    const obStr = ob ? ` + ${ob}(OB)` : "";
+                    tr.querySelector('.bd-input').value = `${newSauda} + ${sd}${deductionStr} + 255 + ${freight}${obStr} + 18%`;
                  }
               });
            }
@@ -613,8 +627,6 @@
       if(action === "reset"){ if(!confirm("Clear all data?")) return; suppressSave = true; localStorage.removeItem(STORAGE_KEY); form.reset(); orderDate.max = TODAY; orderDate.value = TODAY; const checked = document.querySelector('input[name="globalBillType"]:checked'); if(checked) checked.checked = false; root.innerHTML = ""; addNewItemBlock(); clearValidationEffects(document); suppressSave = false; sumSavedAt.textContent = "—"; setStatus("warn", "Draft"); showToast("Reset done"); recalcAll(); }
       if(action === "copySummary"){ 
         const data = collectData(); 
-        
-        // 1. Build the Header Section with all details
         let txt = `*Steel Mart DO*\n\n`;
         txt += `Date: ${data.orderDate}\n`;
         txt += `Dealer: ${data.dealerName}\n`;
@@ -622,28 +634,10 @@
         txt += `Billing Address: ${data.billingAddress}\n`;
         txt += `Dispatch Address: ${data.dispatchAddress}\n`;
         txt += `Bill: ${data.billType}\n\n`;
-        
-        // 2. Add Details Header
         txt += `*Details*\n`;
-
-        // 3. Loop through items
-        let idx = 1; 
-        let tQty = 0; 
-        data.items.forEach(block => { 
-            (block.sizes || []).forEach(s => { 
-                const q = parseFloat(s.qty)||0; 
-                if(block.item && q > 0) { 
-                    // Format: 1. Item Size - Qty MT
-                    txt += `${idx++}. ${block.item} ${s.size} - ${q.toFixed(3)} MT\n`; 
-                    tQty += q; 
-                } 
-            }); 
-        }); 
-        
-        // 4. Add Total at the bottom
+        let idx = 1; let tQty = 0; 
+        data.items.forEach(block => { (block.sizes || []).forEach(s => { const q = parseFloat(s.qty)||0; if(block.item && q > 0) { txt += `${idx++}. ${block.item} ${s.size} - ${q.toFixed(3)} MT\n`; tQty += q; } }); }); 
         txt += `\n*Total: ${tQty.toFixed(3)} MT*`; 
-        
-        // 5. Copy to Clipboard
         navigator.clipboard.writeText(txt).then(() => showToast("Summary copied")); 
       }
       if(action === "exportCsv"){
@@ -670,7 +664,8 @@
       }
     });
 
-    form.addEventListener("input", (e) => { if(e.target && (e.target.id === "freight" || e.target.name === "globalBillType" || e.target.id === "orderDate")){ recalcAll(); validateGlobalSettingsUI(); saveSoon(); } });
+    // UPDATED: Trigger recalc on globalOB change
+    form.addEventListener("input", (e) => { if(e.target && (e.target.id === "freight" || e.target.id === "globalOB" || e.target.name === "globalBillType" || e.target.id === "orderDate")){ recalcAll(); validateGlobalSettingsUI(); saveSoon(); } });
     (function setupParallax(){ let ticking = false; function update(e) { if (!ticking) { window.requestAnimationFrame(() => { const x = (e.clientX - window.innerWidth / 2) * 0.02; const y = (e.clientY - window.innerHeight / 2) * 0.02; document.documentElement.style.setProperty('--plx-x', `${x}px`); document.documentElement.style.setProperty('--plx-y', `${y}px`); ticking = false; }); ticking = true; } } if (window.matchMedia("(pointer: fine)").matches) { window.addEventListener('mousemove', update); } })();
 
     function buildSaudaTableHTML(data) {
