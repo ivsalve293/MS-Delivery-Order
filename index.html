@@ -6,9 +6,6 @@
   <title>Steel Mart MS Delivery Order | Smart Dispatch Sheet</title>
   <meta name="theme-color" content="#dc2626" />
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
   <style>
     /* --- CORE VARIABLES & RESET --- */
     :root{ --bg:#fff5f5; --text:#111827; --muted:#6b7280; --brand:#dc2626; --brand2:#b91c1c; --brand3:#ef4444; --ok:#16a34a; --warn:#f59e0b; --danger:#ef4444; --radius:16px; --radius2:22px; --shadow-sm: 0 8px 20px rgba(15,23,42,.07); --shadow: 0 16px 44px rgba(15,23,42,.11); --ring: 0 0 0 4px rgba(220,38,38,.22); --ease: cubic-bezier(.2,.8,.2,1); --ease2:cubic-bezier(.16,1,.3,1); --page-max:1320px; --fs-body: 14px; --fs-label: 12px; --fs-h2: 12px; --plx-x: 0px; --plx-y: 0px; }
@@ -427,7 +424,6 @@
   <div class="actions-bar no-print">
     <button class="btn ghost" type="button" data-action="reset">🧹 Reset</button>
     <button class="btn secondary" type="button" data-action="exportCsv">⬇️ CSV</button>
-    <button class="btn secondary" type="button" data-action="shareWhatsapp" style="background:#25D366; color:white; border:none;">📱 Share PDF</button>
     <button class="btn secondary" type="button" data-action="copySummary">📋 Copy</button>
     <button class="btn primary" type="button" data-action="print">🖨️ Print</button>
   </div>
@@ -730,8 +726,8 @@
          block.after(newBlock);
          newBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
          setTimeout(() => {
-            const r = newBlock.querySelector('.block-sauda-input');
-            if(r) r.focus();
+           const r = newBlock.querySelector('.block-sauda-input');
+           if(r) r.focus();
          }, 100);
          saveSoon();
       }
@@ -993,105 +989,111 @@
         navigator.clipboard.writeText(txt).then(() => showToast("Summary copied"));
       }
 
-      /* UPDATED: Share PDF via WhatsApp (Native Share Sheet) */
-      if(action === "shareWhatsapp"){
+      if(action === "exportCsv"){
         const data = collectData();
-        if(!data.dealerName || !data.billType) {
-          alert("Please fill Dealer Name and Bill Type before sharing.");
-          return;
+        const csvCell = v => `"${String(v || "").replace(/"/g, '""')}"`;
+
+        // 1. Prepare Header Data
+        const headerRows = [
+          [csvCell("Delivery Order")],
+          [],
+          ["P O Order No.", csvCell(data.poNo), "", "Date", csvCell(data.orderDate)],
+          ["P O Date", csvCell(data.poDate), "", "Freight", csvCell(data.freight)],
+          ["Dealer Name", csvCell(data.dealerName), "", "Lorry No", csvCell(data.lorryNo)],
+          ["Billing Name", csvCell(data.billingName), "", "OB", csvCell(data.ob)],
+          ["Billing Address", csvCell(data.billingAddress)], // Spans logically
+          ["Consignee Name", csvCell(data.consigneeName)],
+          ["Shipping Address", csvCell(data.dispatchAddress)],
+          ["Bill Type", csvCell(data.billType)],
+          []
+        ];
+
+        // 2. Prepare Item & Sauda Rates Data (Side-by-Side)
+        const aggMap = {};
+        (data.items || []).forEach(b => {
+           const name = (b.item||"").trim();
+           const rate = (b.saudaRate||"").toString().trim();
+           if(name && rate && Number.isFinite(+rate) && +rate > 0) {
+             let q = 0;
+             (b.sizes||[]).forEach(s => q += parseFloat(s.qty)||0);
+             if(q > 0){
+                  const key = `${name}::${rate}`;
+                  if(!aggMap[key]) aggMap[key] = { item: name, rate: rate, qty: 0 };
+                  aggMap[key].qty += q;
+              }
+           }
+        });
+        const pairs = Object.values(aggMap);
+        const saudaRows = [];
+        if(pairs.length > 0){
+            saudaRows.push(["Item & Sauda Rates"]); // Section Header
+            saudaRows.push(["Item", "Rate", "Qty", "Item", "Rate", "Qty"]); // Table Header
+            for(let k=0; k<pairs.length; k+=2){
+                const p1 = pairs[k];
+                const p2 = pairs[k+1];
+                const row = [
+                    csvCell(p1.item), csvCell(p1.rate), p1.qty.toFixed(3),
+                    p2 ? csvCell(p2.item) : "", p2 ? csvCell(p2.rate) : "", p2 ? p2.qty.toFixed(3) : ""
+                ];
+                saudaRows.push(row);
+            }
+            saudaRows.push([]); // Spacer
         }
 
-        // Show loading state
-        loadingText.textContent = "Generating PDF...";
-        loaderOverlay.style.display = 'flex';
+        // 3. Prepare Detailed Items Data
+        const itemRows = [];
+        itemRows.push(["Sr", "Item", "Sizes", "Qty (MT)", "Breakdown", "Net Rate"]);
+        let sr = 1;
+        let totalQty = 0;
 
-        // 1. Prepare Print Data
-        preparePrintAndScale();
-
-        // 2. Temporarily show the print layout for html2canvas
-        const printEl = document.getElementById("printTableLayout");
-        const originalStyle = printEl.getAttribute('style');
-
-        // Force visibility, white bg, high resolution width
-        printEl.style.display = 'block';
-        printEl.style.position = 'fixed';
-        printEl.style.top = '-10000px'; // Move off-screen
-        printEl.style.left = '0';
-        printEl.style.width = '794px'; // A4 width at 96dpi approx
-        printEl.style.background = '#ffffff';
-        printEl.style.zIndex = '-1';
-        printEl.style.transform = 'none'; // remove scale for capture
-
-        // 3. Generate PDF
-        html2canvas(printEl, {
-          scale: 2, // 2x scale for crisp text
-          useCORS: true,
-          logging: false
-        }).then(canvas => {
-          // Cleanup style
-          printEl.setAttribute('style', originalStyle || '');
-          printEl.style.removeProperty('display'); // Revert to class control
-
-          const imgData = canvas.toDataURL('image/jpeg', 0.95);
-          const { jsPDF } = window.jspdf;
-          // A4 size: 210mm x 297mm
-          const pdf = new jsPDF('p', 'mm', 'a4');
-          const pdfWidth = 210;
-          const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-
-          pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-          const fileName = `DO_${(data.dealerName||"Client").replace(/[^a-z0-9]/gi, '_').substring(0,10)}_${Date.now()}.pdf`;
-          const pdfBlob = pdf.output('blob');
-          const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-
-          loaderOverlay.style.display = 'none';
-
-          // 4. Trigger Native Share
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            navigator.share({
-              files: [file],
-              title: 'Delivery Order',
-              text: `Delivery Order for ${data.dealerName}`
-            })
-            .then(() => showToast("Shared successfully"))
-            .catch((err) => {
-              if (err.name !== 'AbortError') {
-                 console.error(err);
-                 alert("Sharing failed. Downloading instead.");
-                 pdf.save(fileName);
-              }
+        (data.items || []).forEach(block => {
+            (block.sizes || []).forEach(s => {
+                const q = parseFloat(s.qty);
+                if (q > 0) {
+                    totalQty += q;
+                    itemRows.push([
+                        sr++,
+                        csvCell(block.item),
+                        csvCell(s.size),
+                        q.toFixed(3),
+                        csvCell(s.bd), // Breakdown
+                        csvCell(s.rate) // Net Rate
+                    ]);
+                }
             });
-          } else {
-            // Fallback for desktop or unsupported browsers
-            pdf.save(fileName);
-            showToast("Downloaded PDF (Share not supported)");
-          }
-
-        }).catch(err => {
-          console.error(err);
-          loaderOverlay.style.display = 'none';
-          alert("Error creating PDF. Please try Print > Save as PDF.");
         });
-      }
 
-      if(action === "exportCsv"){
-        const data = collectData(); const csvCell=v=>`"${String(v||"").replace(/"/g,'""')}"`;
-        const lines = [csvCell("Delivery Order"),"",`Dealer Name,${csvCell(data.dealerName)}`,`Billing Name,${csvCell(data.billingName)}`,`Date,${csvCell(data.orderDate)}`,`Bill Type,${csvCell(data.billType)}`,`Lorry No,${csvCell(data.lorryNo)}`,"", "Item,Rate"];
-        (data.items||[]).forEach(x=>lines.push(`${csvCell(x.item)},${csvCell(x.saudaRate)}`));
-        lines.push("","Sr,Item,Size,Qty(MT),Rate,Breakdown");
-        let i=1,t=0;
-        (data.items||[]).forEach(b=>{
-          (b.sizes||[]).forEach(s=>{
-            if(s.qty>0){
-              t+=parseFloat(s.qty);
-              lines.push(`${i++},${csvCell(b.item)},${csvCell(s.size)},${s.qty},${s.rate},${csvCell(s.bd)}`);
-            }
-          });
-        });
-        lines.push(`,Total,,${t.toFixed(3)},MT`);
+        // Total Row
+        itemRows.push(["", "Total", "", totalQty.toFixed(3), "MT", ""]);
+        itemRows.push([]); // Spacer
+
+        // 4. Footer (Notes & Signatures)
+        const footerRows = [
+            ["Note:", csvCell(data.note)],
+            [],
+            ["Order Signed", "", "Approved By"],
+            [csvCell(data.signedBy), "", csvCell(data.approvedBy)]
+        ];
+
+        // Combine all lines
+        const allLines = [
+            ...headerRows,
+            ...saudaRows,
+            ...itemRows,
+            ...footerRows
+        ];
+
+        // Convert to CSV string
+        const csvContent = allLines.map(r => r.join(",")).join("\n");
+
+        // Download
         const a = document.createElement("a");
-        a.href = window.URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" }));
-        a.download = `DO_${(data.dealerName||"").substring(0,10)}_${Date.now()}.csv`;
+        a.href = window.URL.createObjectURL(new Blob([csvContent], { type: "text/csv;charset=utf-8" }));
+        
+        // --- NEW FILENAME LOGIC (DEALER NAME ONLY) ---
+        const fileName = (data.dealerName || "Delivery_Order").replace(/[^a-z0-9\s\-_]/gi, '').trim() || "Delivery_Order";
+        a.download = fileName + ".csv";
+        
         a.click();
       }
 
@@ -1142,9 +1144,9 @@
          const name = (b.item||"").trim();
          const rate = (b.saudaRate||"").toString().trim();
          if(name && rate && Number.isFinite(+rate) && +rate > 0) {
-            let q = 0;
-            (b.sizes||[]).forEach(s => q += parseFloat(s.qty)||0);
-            if(q > 0){
+           let q = 0;
+           (b.sizes||[]).forEach(s => q += parseFloat(s.qty)||0);
+           if(q > 0){
                 const key = `${name}::${rate}`;
                 if(!aggMap[key]) aggMap[key] = { item: name, rate: rate, qty: 0 };
                 aggMap[key].qty += q;
