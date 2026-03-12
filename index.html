@@ -518,51 +518,116 @@
 
     // --- DATA FETCHING ---
     async function fetchSheetData() {
-      try {
-        if(!SHEET_API_URL || SHEET_API_URL.includes("PASTE_YOUR")) throw new Error("API URL not configured.");
-        const response = await fetch(SHEET_API_URL);
-        if (!response.ok) throw new Error("Network response was not ok");
-        const jsonResponse = await response.json();
-
-        const rawItems = jsonResponse.items || [];
-        const newSdList = {};
-        const newItems = [];
-
-        rawItems.forEach(group => {
-          const itemName = group.name;
-          if (!itemName) return;
-          newItems.push(itemName);
-          newSdList[itemName] = [];
-          if (group.sizes && Array.isArray(group.sizes)) {
-            group.sizes.forEach(s => newSdList[itemName].push([ s.label, s.sd || 0 ]));
-          }
-        });
-
-        SIZE_SD_LIST = newSdList;
-        ITEM_LIST = newItems;
-
-        SIZE_SD_MAP = Object.create(null);
-        SIZE_KEYS = Object.create(null);
-        for (const [item, list] of Object.entries(SIZE_SD_LIST)){
-          const m = Object.create(null);
-          const keys = [];
-          for (const [size, sdRaw] of list){
-            const k = String(size || "").trim();
-            if (!k) continue;
-            m[k] = Number.isFinite(+sdRaw) ? +sdRaw : 0;
-            keys.push(k);
-          }
-          SIZE_SD_MAP[item] = m;
-          SIZE_KEYS[item] = keys;
-        }
-        loaderOverlay.style.display = 'none';
-        init();
-
-      } catch (error) {
-        console.error(error);
-        loaderOverlay.innerHTML = `<p style='color:red; text-align:center'>Error loading data.<br>${error.message}</p>`;
-      }
+  try {
+    if (!SHEET_API_URL || SHEET_API_URL.includes("PASTE_YOUR")) {
+      throw new Error("API URL not configured.");
     }
+
+    const response = await fetch(SHEET_API_URL + "?t=" + Date.now(), { cache: "no-store" });
+    if (!response.ok) throw new Error("Network response was not ok");
+
+    const jsonResponse = await response.json();
+
+    let rows = [];
+
+    // Format 1: grouped format
+    if (Array.isArray(jsonResponse?.items) && jsonResponse.items.length && jsonResponse.items[0]?.sizes) {
+      jsonResponse.items.forEach(group => {
+        const itemName = String(group.name || "").trim();
+        if (!itemName || !Array.isArray(group.sizes)) return;
+
+        group.sizes.forEach(s => {
+          rows.push({
+            item: itemName,
+            size_label: s.label,
+            sd: s.sd,
+            active: true
+          });
+        });
+      });
+    }
+    // Format 2: flat array
+    else if (Array.isArray(jsonResponse)) {
+      rows = jsonResponse;
+    }
+    // Format 3: flat inside data/items/rows
+    else if (Array.isArray(jsonResponse?.data)) {
+      rows = jsonResponse.data;
+    } else if (Array.isArray(jsonResponse?.rows)) {
+      rows = jsonResponse.rows;
+    } else if (Array.isArray(jsonResponse?.items)) {
+      rows = jsonResponse.items;
+    }
+
+    const newSdList = {};
+    const newItems = [];
+
+    rows.forEach(row => {
+      if (!row || typeof row !== "object") return;
+
+      const itemName = String(
+        row.item_name ||
+        row.item ||
+        row.name ||
+        row.itemType ||
+        row.category ||
+        ""
+      ).trim();
+
+      const sizeLabel = String(
+        row.size_label ||
+        row.size ||
+        row.label ||
+        row.sizeLabel ||
+        ""
+      ).trim();
+
+      const active =
+        row.active === undefined
+          ? true
+          : ["true", "1", "yes", "y", "active"].includes(String(row.active).trim().toLowerCase()) || row.active === true;
+
+      if (!itemName || !sizeLabel || !active) return;
+
+      const sdVal = Number(row.sd ?? row.rate ?? 0);
+
+      if (!newSdList[itemName]) {
+        newSdList[itemName] = [];
+        newItems.push(itemName);
+      }
+
+      newSdList[itemName].push([sizeLabel, Number.isFinite(sdVal) ? sdVal : 0]);
+    });
+
+    SIZE_SD_LIST = newSdList;
+    ITEM_LIST = newItems;
+
+    SIZE_SD_MAP = Object.create(null);
+    SIZE_KEYS = Object.create(null);
+
+    for (const [item, list] of Object.entries(SIZE_SD_LIST)) {
+      const m = Object.create(null);
+      const keys = [];
+
+      for (const [size, sdRaw] of list) {
+        const k = String(size || "").trim();
+        if (!k) continue;
+        m[k] = Number.isFinite(+sdRaw) ? +sdRaw : 0;
+        keys.push(k);
+      }
+
+      SIZE_SD_MAP[item] = m;
+      SIZE_KEYS[item] = keys;
+    }
+
+    loaderOverlay.style.display = "none";
+    init();
+
+  } catch (error) {
+    console.error(error);
+    loaderOverlay.innerHTML = `<p style='color:red; text-align:center'>Error loading data.<br>${error.message}</p>`;
+  }
+}
 
     function fmtTime(ts){ try{ return new Date(ts).toLocaleString(undefined, {hour:"2-digit", minute:"2-digit"}); } catch(_){ return "—"; } }
     function setStatus(kind, label){
